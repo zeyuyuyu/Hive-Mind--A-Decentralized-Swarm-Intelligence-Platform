@@ -1,45 +1,79 @@
 import random
+import math
+from typing import List, Dict, Any
 
 class SwarmNode:
-    def __init__(self, id, location):
-        self.id = id
-        self.location = location
-        self.neighbors = []
-        self.swarm_score = 0
-        self.swarm_target = None
+    def __init__(self, node_id: str, initial_weight: float = 1.0):
+        self.node_id = node_id
+        self.weight = initial_weight
+        self.neighbors: List[SwarmNode] = []
+        self.state: Dict[str, Any] = {}
+        self.decision_history: List[Dict] = []
+        self.trust_scores: Dict[str, float] = {}
 
-    def update_swarm_score(self):
-        self.swarm_score = sum([n.swarm_score for n in self.neighbors])
+    def connect(self, other_node: 'SwarmNode') -> None:
+        if other_node not in self.neighbors:
+            self.neighbors.append(other_node)
+            self.trust_scores[other_node.node_id] = 1.0
 
-    def find_swarm_target(self):
-        if not self.neighbors:
-            self.swarm_target = self.location
+    def propose_decision(self, decision_id: str, options: List[Any]) -> Dict:
+        votes = {option: 0.0 for option in options}
+        
+        # Cast own vote
+        own_choice = random.choice(options)
+        votes[own_choice] += self.weight
+
+        # Collect weighted votes from neighbors
+        for neighbor in self.neighbors:
+            neighbor_choice = neighbor.vote(options)
+            trust_factor = self.trust_scores[neighbor.node_id]
+            votes[neighbor_choice] += neighbor.weight * trust_factor
+
+        # Calculate winning decision
+        winner = max(votes.items(), key=lambda x: x[1])
+        
+        decision = {
+            'decision_id': decision_id,
+            'options': options,
+            'votes': votes,
+            'winner': winner[0],
+            'confidence': winner[1] / sum(votes.values())
+        }
+
+        self.decision_history.append(decision)
+        return decision
+
+    def vote(self, options: List[Any]) -> Any:
+        return random.choice(options)
+
+    def update_trust_scores(self, correct_decision: Any) -> None:
+        if not self.decision_history:
             return
 
-        best_neighbor = max(self.neighbors, key=lambda n: n.swarm_score)
-        if best_neighbor.swarm_score > self.swarm_score:
-            self.swarm_target = best_neighbor.location
-        else:
-            self.swarm_target = self.location
+        last_decision = self.decision_history[-1]
+        
+        # Update trust scores based on alignment with correct decision
+        for neighbor in self.neighbors:
+            neighbor_vote = neighbor.vote(last_decision['options'])
+            if neighbor_vote == correct_decision:
+                self.trust_scores[neighbor.node_id] *= 1.1
+            else:
+                self.trust_scores[neighbor.node_id] *= 0.9
 
-    def move_towards_swarm_target(self):
-        dx = self.swarm_target[0] - self.location[0]
-        dy = self.swarm_target[1] - self.location[1]
-        distance = (dx ** 2 + dy ** 2) ** 0.5
+            # Normalize trust score
+            self.trust_scores[neighbor.node_id] = max(0.1, min(1.0, self.trust_scores[neighbor.node_id]))
 
-        if distance > 0.1:
-            self.location = (
-                self.location[0] + 0.1 * dx / distance,
-                self.location[1] + 0.1 * dy / distance
-            )
+    def get_swarm_state(self) -> Dict[str, Any]:
+        state = {
+            'node_id': self.node_id,
+            'weight': self.weight,
+            'neighbor_count': len(self.neighbors),
+            'trust_scores': self.trust_scores,
+            'decision_history_length': len(self.decision_history)
+        }
+        return state
 
-    def update(self):
-        self.update_swarm_score()
-        self.find_swarm_target()
-        self.move_towards_swarm_target()
-
-    def add_neighbor(self, neighbor):
-        self.neighbors.append(neighbor)
-
-    def remove_neighbor(self, neighbor):
-        self.neighbors.remove(neighbor)
+    def adjust_weight(self, performance_score: float) -> None:
+        """Adjust node's weight based on its performance"""
+        self.weight *= (1.0 + math.tanh(performance_score))
+        self.weight = max(0.1, min(2.0, self.weight))
