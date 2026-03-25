@@ -1,83 +1,53 @@
-import hashlib
+import random
 import time
-from typing import List, Dict, Any
-from dataclasses import dataclass
-
-@dataclass
-class Message:
-    sender_id: str
-    timestamp: float
-    payload: Any
-    signature: str
+from typing import List
 
 class SwarmNode:
-    def __init__(self, node_id: str, initial_peers: List[str]):
+    def __init__(self, node_id: str, neighbors: List[str]):
         self.node_id = node_id
-        self.peers = set(initial_peers)
-        self.message_pool = []
-        self.consensus_state = {}
-        self.round_number = 0
-        
-    def broadcast_message(self, payload: Any) -> Message:
-        """Broadcast a message to all peers in the swarm"""
-        message = Message(
-            sender_id=self.node_id,
-            timestamp=time.time(),
-            payload=payload,
-            signature=self._sign_message(payload)
-        )
-        self.message_pool.append(message)
-        return message
+        self.neighbors = neighbors
+        self.state = 'IDLE'
+        self.task_queue = []
+        self.consensus_round = 0
+        self.consensus_votes = {}
 
-    def validate_message(self, message: Message) -> bool:
-        """Validate incoming message authenticity and integrity"""
-        if not message.sender_id or not message.signature:
-            return False
-        expected_signature = self._sign_message(message.payload)
-        return message.signature == expected_signature
+    def add_task(self, task):
+        self.task_queue.append(task)
 
-    def achieve_consensus(self) -> Dict:
-        """Byzantine fault tolerant consensus implementation"""
-        self.round_number += 1
-        valid_messages = [m for m in self.message_pool 
-                         if self.validate_message(m)]
+    def process_tasks(self):
+        while self.task_queue:
+            task = self.task_queue.pop(0)
+            self.execute_task(task)
 
-        # Prepare phase
-        prepare_votes = {}
-        for message in valid_messages:
-            if message.sender_id not in prepare_votes:
-                prepare_votes[message.sender_id] = message.payload
+    def execute_task(self, task):
+        print(f'Node {self.node_id} executing task: {task}')
+        time.sleep(random.uniform(1, 5))  # Simulating task execution
 
-        # Commit phase - require 2/3 majority
-        threshold = (len(self.peers) * 2) // 3
-        consensus_value = None
-        
-        for value in prepare_votes.values():
-            count = sum(1 for v in prepare_votes.values() if v == value)
-            if count >= threshold:
-                consensus_value = value
-                break
+    def start_consensus(self, task):
+        self.state = 'CONSENSUS'
+        self.consensus_round += 1
+        self.consensus_votes = {n: None for n in self.neighbors}
+        self.consensus_votes[self.node_id] = task
+        self.broadcast_vote(task)
 
-        self.consensus_state[self.round_number] = consensus_value
-        return {
-            'round': self.round_number,
-            'consensus_value': consensus_value,
-            'participants': len(prepare_votes)
-        }
+    def broadcast_vote(self, task):
+        for neighbor in self.neighbors:
+            # Simulate sending vote to neighbor
+            print(f'Node {self.node_id} sending vote for task {task} to neighbor {neighbor}')
+            time.sleep(random.uniform(0.1, 1))
+            self.receive_vote(neighbor, task)
 
-    def _sign_message(self, payload: Any) -> str:
-        """Create cryptographic signature for message payload"""
-        message_bytes = str(payload).encode('utf-8')
-        return hashlib.sha256(message_bytes).hexdigest()
+    def receive_vote(self, voter, task):
+        self.consensus_votes[voter] = task
+        if len(self.consensus_votes) == len(self.neighbors) + 1:
+            self.tally_votes()
 
-    def add_peer(self, peer_id: str) -> None:
-        """Add new peer to the swarm"""
-        self.peers.add(peer_id)
+    def tally_votes(self):
+        vote_counts = {}
+        for vote in self.consensus_votes.values():
+            vote_counts[vote] = vote_counts.get(vote, 0) + 1
 
-    def remove_peer(self, peer_id: str) -> None:
-        """Remove peer from the swarm"""
-        self.peers.discard(peer_id)
-
-    def get_consensus_history(self) -> Dict:
-        """Retrieve historical consensus decisions"""
-        return self.consensus_state.copy()
+        winning_task = max(vote_counts, key=vote_counts.get)
+        print(f'Node {self.node_id} reached consensus on task: {winning_task}')
+        self.state = 'IDLE'
+        self.execute_task(winning_task)
